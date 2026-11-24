@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Whistle</title>
+<style>
+  :root { --bg:#14161a; --fg:#e8e6e1; --dim:#8b8f98; --acc:#e8a33d; --card:#1e2127; --line:#2c3038; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.4 -apple-system, system-ui, sans-serif; touch-action: manipulation; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; padding-bottom: 48px; }
+  h1 { font-size: 20px; margin: 4px 0 12px; font-weight: 600; }
+  button { font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-height: 44px; }
+  button.on, button:active { background: var(--acc); color:#1b1306; border-color: var(--acc); }
+  #start { width: 100%; font-weight: 600; font-size: 18px; }
+  canvas { width: 100%; height: 90px; background: #0e1013; border-radius: 10px; display:block; margin: 12px 0; }
+  .row { display:grid; grid-template-columns: 1fr; gap: 2px; margin: 10px 0; }
+  .row label { display:flex; justify-content: space-between; color: var(--dim); font-size: 14px; }
+  .row label b { color: var(--fg); font-weight: 500; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; height: 36px; accent-color: var(--acc); }
+  .seg { display:flex; gap: 6px; }
+  .seg button { flex:1; }
+  .presets { display:flex; gap:6px; flex-wrap: wrap; margin: 12px 0; }
+  details { margin-top: 20px; background: var(--card); border:1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+  summary { min-height: 36px; display:flex; align-items:center; color: var(--dim); }
+  pre { margin: 8px 0; font-size: 13px; white-space: pre-wrap; color: var(--fg); }
+  .err { color: #ff7b72; margin: 8px 0; }
+  .tools { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Whistle</h1>
+  <div id="err" class="err" hidden></div>
+  <button id="start">Tap to start audio</button>
+  <canvas id="scope" width="640" height="180"></canvas>
+  <div class="presets" id="presets"></div>
+  <div id="controls"></div>
+  <details id="benchBox">
+    <summary>Benchmark &amp; stress (milestone 1)</summary>
+    <div class="tools">
+      <button id="benchBtn">Benchmark: off</button>
+      <label>Voices <select id="voices"><option>1</option><option>2</option><option>4</option><option>8</option><option>16</option><option>32</option></select></label>
+      <button id="sweepBtn">60 s sweep</button>
+    </div>
+    <pre id="benchOut">Start audio, then enable the benchmark.</pre>
+  </details>
+</main>
+<script src="main.js"></script>
+</body>
+</html>
