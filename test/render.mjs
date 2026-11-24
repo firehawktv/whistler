@@ -10,7 +10,7 @@ const fs = 48000;
 
 export function render(params, seconds = 1.5, pre = 0.5) {
   const v = new WhistleVoice(fs, 1, 1);
-  v.setParams({ ...DEFAULTS, ...params });
+  v.gateT = 1; v.setParams({ ...DEFAULTS, ...params });
   const total = Math.round(seconds * fs), buf = new Float32Array(total);
   const blk = new Float32Array(128);
   for (let i = 0; i < total; i += 128) { blk.fill(0); v.process(blk, Math.min(128, total - i)); buf.set(blk.subarray(0, Math.min(128, total - i)), i); }

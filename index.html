@@ -32,7 +32,11 @@
 <main>
   <h1>Whistle</h1>
   <div id="err" class="err" hidden></div>
-  <button id="start">Tap to start audio</button>
+  <button id="start">Tap to start audio (BLOW also starts it)</button>
+  <div class="tools">
+    <button id="blow" style="flex:1;font-weight:700;font-size:22px;min-height:72px">BLOW</button>
+    <select id="pattern" style="min-height:72px;font-size:16px"></select>
+  </div>
   <canvas id="scope" width="640" height="180"></canvas>
   <div class="presets" id="presets"></div>
   <div id="controls"></div>

@@ -15,6 +15,13 @@ const CHORDS = {
   'Wide 3-chamber': [1, 1.3348, 1.7818],
   'Clash': [1, 1.06, 1.4983],
 };
+const PATTERNS = {
+  'Two short':           { steps: [[170, 140], [170, 0]] },
+  'Three short':         { steps: [[150, 120], [150, 120], [150, 0]] },
+  'Crossing (long-long-short-long)': { steps: [[900, 450], [900, 450], [250, 300], [1500, 0]] },
+  'One long':            { steps: [[1400, 0]] },
+  'Hold while pressed':  { hold: true },
+};
 const PRESETS = {
   'Steam whistle': { length: 0.22, width: 3,   pressure: 0.55, ports: 0, portSize: 0.5, gap: 0.45, turbulence: 0.3,  tone: 0.4,  chord: 'Chime (minor)' },
   'Pea whistle':   { length: 0.07, width: 1.5, pressure: 0.6,  ports: 0, portSize: 0.5, gap: 0.4,  turbulence: 0.35, tone: 0.3,  chord: 'Single' },
@@ -167,17 +174,36 @@ $('voices').addEventListener('change', sendVoices);
 // 60 s automated sweep of every parameter (acceptance test). Run with benchmark on and watch dropouts.
 $('sweepBtn').addEventListener('click', () => {
   if (!node) { showError('Start audio first.'); return; }
-  if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; $('sweepBtn').textContent = '60 s sweep'; $('sweepBtn').classList.remove('on'); return; }
-  const t0 = performance.now(); drift.drops = 0; drift.worst = 0;
+  if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; node.port.postMessage({ type: 'gate', on: false }); $('sweepBtn').textContent = '60 s sweep'; $('sweepBtn').classList.remove('on'); return; }
+  const t0 = performance.now(); drift.drops = 0; drift.worst = 0; node.port.postMessage({ type: 'gate', on: true });
   $('sweepBtn').textContent = 'Sweeping… (tap to stop)'; $('sweepBtn').classList.add('on');
   sweepTimer = setInterval(() => {
     const t = (performance.now() - t0) / 1000;
-    if (t > 60) { clearInterval(sweepTimer); sweepTimer = null; $('sweepBtn').textContent = '60 s sweep'; $('sweepBtn').classList.remove('on'); return; }
+    if (t > 60) { clearInterval(sweepTimer); sweepTimer = null; node.port.postMessage({ type: 'gate', on: false }); $('sweepBtn').textContent = '60 s sweep'; $('sweepBtn').classList.remove('on'); return; }
     PARAMS.forEach((p, i) => { state[p.key] = p.min + (p.max - p.min) * (0.5 + 0.5 * Math.sin(t * (0.35 + 0.17 * i) + i)); });
     state.ports = Math.floor(2.5 + 2.49 * Math.sin(t * 0.21));
     syncUI(); dirty = true;
   }, 33);
 });
 
+function setupBlow() {
+  const sel = $('pattern'), btn = $('blow');
+  for (const n of Object.keys(PATTERNS)) sel.add(new Option(n, n));
+  const press = (e) => {
+    e && e.preventDefault();
+    if (!node) { startAudio().then(() => press()); return; }
+    if (ctx.state !== 'running') ctx.resume();
+    const pat = PATTERNS[sel.value];
+    btn.classList.add('on');
+    if (pat.hold) node.port.postMessage({ type: 'gate', on: true });
+    else { node.port.postMessage({ type: 'pattern', steps: pat.steps }); setTimeout(() => btn.classList.remove('on'), pat.steps.reduce((a, s) => a + s[0] + s[1], 0)); }
+  };
+  const release = () => { if (PATTERNS[sel.value].hold && node) { node.port.postMessage({ type: 'gate', on: false }); btn.classList.remove('on'); } };
+  btn.addEventListener('pointerdown', press);
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) btn.addEventListener(ev, release);
+  document.addEventListener('keydown', (e) => { if (e.code === 'Space' && !e.repeat && e.target === document.body) press(e); });
+  document.addEventListener('keyup', (e) => { if (e.code === 'Space') release(); });
+}
+setupBlow();
 buildUI();
 if (!window.isSecureContext) showError('Not a secure context: AudioWorklet will be unavailable. Serve over https or localhost.');

@@ -84,6 +84,8 @@ class WhistleVoice {
     this.fs = fs;
     this.ratio = ratio || 1;
     this._p = Object.assign({}, DEFAULTS);
+    this.gate = 0; this.gateT = 0; // breath gate: 0 = not blowing
+    this.aAtk = 1 - Math.exp(-1 / (0.012 * fs)); this.aRel = 1 - Math.exp(-1 / (0.035 * fs));
     this.env = 0; this.jit = 0; this.o1 = 0; this.o2 = 0;
     this.bore = new Float32Array(BORE_SIZE);
     this.jet = new Float32Array(JET_SIZE);
@@ -115,6 +117,7 @@ class WhistleVoice {
     let lpY = this.lpY, dcX = this.dcX, dcY = this.dcY, oX = this.oX, oY = this.oY;
     let nx1 = this.nx1, nx2 = this.nx2, ny1 = this.ny1, ny2 = this.ny2, wobLp = this.wobLp;
     let rng = this.rng;
+    let gate = this.gate; const gateT = this.gateT, aAtk = this.aAtk, aRel = this.aRel;
     let env = this.env, jit = this.jit, o1 = this.o1, o2 = this.o2;
 
     for (let i = 0; i < n; i++) {
@@ -126,6 +129,7 @@ class WhistleVoice {
       cur.noiseGain += (tgt.noiseGain - cur.noiseGain) * aF;
       cur.hiss += (tgt.hiss - cur.hiss) * aF;
       cur.lp += (tgt.lp - cur.lp) * aF;
+      gate += (gateT - gate) * (gateT > gate ? aAtk : aRel);
       cur.hpR += (tgt.hpR - cur.hpR) * aF;
       cur.oLp += (tgt.oLp - cur.oLp) * aF;
       cur.nb0 += (tgt.nb0 - cur.nb0) * aF;
@@ -156,20 +160,20 @@ class WhistleVoice {
       // onset: more air until the tone has built up (env ~ 0 -> chiff, env ~ 0.2 -> clean)
       const air = cur.noiseGain * (1 + 6 * (env < 0.15 ? 1 - env * 6.67 : 0));
       jet[jw] = refl + air * nz * 2;
-      let jp = jw + JET_SIZE - cur.jetD * (1 + cur.wobble * wobLp * 30 + 1.5 * jit);
+      let jp = jw + JET_SIZE - cur.jetD * (1 + 0.05 * (1 - gate) + cur.wobble * wobLp * 30 + 1.5 * jit);
       let ji = jp | 0; let jf = jp - ji;
       let jx = (jet[ji & JM] * (1 - jf) + jet[(ji + 1) & JM] * jf) * cur.jetGain * JET_K;
       jw = (jw + 1) & JM;
       jx = jx > 1 ? 1 : (jx < -1 ? -1 : jx);
       // saturating cubic; jet velocity (pressure) scales the injected pressure
-      const jt = cur.breath * (jx - jx * jx * jx * (1 / 3));
+      const jt = cur.breath * gate * (jx - jx * jx * jx * (1 / 3));
 
       bore[bw] = jt + 0.5 * refl;
       bw = (bw + 1) & BM;
 
       // output: bore signal + hiss, DC block, soft limit
       env += 0.002 * ((y < 0 ? -y : y) - env);
-      const raw = y + cur.hiss * nz * 3 * (1 + 2 * (env < 0.15 ? 1 - env * 6.67 : 0));
+      const raw = y + cur.hiss * gate * nz * 3 * (1 + 2 * (env < 0.15 ? 1 - env * 6.67 : 0));
       o1 += cur.oLp * (raw - o1); o2 += cur.oLp * (o1 - o2);
       const o = o2 - oX + 0.995 * oY; oX = o2; oY = o;
       const s = o * cur.outGain * 3;
@@ -178,6 +182,7 @@ class WhistleVoice {
     this.bw = bw; this.jw = jw;
     this.lpY = lpY; this.dcX = dcX; this.dcY = dcY; this.oX = oX; this.oY = oY;
     this.nx1 = nx1; this.nx2 = nx2; this.ny1 = ny1; this.ny2 = ny2; this.wobLp = wobLp;
+    this.gate = gate;
     this.rng = rng; this.env = env; this.jit = jit; this.o1 = o1; this.o2 = o2;
   }
 }
@@ -193,6 +198,7 @@ class WhistleProcessor extends AudioWorkletProcessor {
     this.nowFn = (typeof performance !== 'undefined' && performance.now) ? () => performance.now() : () => Date.now();
     this.nowKind = (typeof performance !== 'undefined' && performance.now) ? 'performance.now' : 'Date.now (1 ms)';
     this.bench = null;
+    this.held = false; this.segs = []; // blow pattern: [startFrame, endFrame] pairs
     this.reportEvery = 0;
     this.port.onmessage = (e) => this.onMessage(e.data);
   }
@@ -208,6 +214,13 @@ class WhistleProcessor extends AudioWorkletProcessor {
       for (let i = 0; i < r.length; i++) { const v = new WhistleVoice(sampleRate, r[i], i + 1); v.setParams(this.params); vs.push(v); }
       this.gain = 1 / Math.sqrt(vs.length);
       this.voices = vs;
+    } else if (m.type === 'gate') {
+      this.held = !!m.on; if (!m.on) this.segs.length = 0;
+    } else if (m.type === 'pattern') {
+      // m.steps: [[onMs, offMs], ...] starting now; replaces any running pattern
+      let t = currentFrame + Math.round(0.01 * sampleRate); const segs = [];
+      for (const st of (m.steps || []).slice(0, 16)) { const a = t, b = a + Math.round(st[0] * sampleRate / 1000); segs.push([a, b]); t = b + Math.round(st[1] * sampleRate / 1000); }
+      this.segs = segs;
     } else if (m.type === 'bench') {
       this.bench = m.on ? { blocks: 0, sum: 0, max: 0, winSum: 0, winN: 0, winMax: 0, over: 0 } : null;
       this.reportEvery = Math.round(sampleRate / 128 / 2); // ~2 reports/s
@@ -219,6 +232,11 @@ class WhistleProcessor extends AudioWorkletProcessor {
     const n = out.length;
     const b = this.bench;
     const t0 = b ? this.nowFn() : 0;
+    // gate decided per block (2.7 ms resolution is plenty for peeps); voices smooth it per sample
+    let open = this.held; const f = currentFrame, segs = this.segs;
+    for (let k = 0; k < segs.length; k++) if (f + n > segs[k][0] && f < segs[k][1]) { open = true; break; }
+    const gt = open ? 1 : 0;
+    for (let v = 0; v < this.voices.length; v++) this.voices[v].gateT = gt;
     for (let i = 0; i < n; i++) out[i] = 0;
     for (let v = 0; v < this.voices.length; v++) this.voices[v].process(out, n);
     const g = this.gain; if (g !== 1) for (let i = 0; i < n; i++) out[i] *= g;
@@ -242,4 +260,4 @@ class WhistleProcessor extends AudioWorkletProcessor {
 }
 
 if (typeof registerProcessor === 'function') registerProcessor('whistle-processor', WhistleProcessor);
-if (typeof globalThis !== 'undefined') globalThis.__whistle = { WhistleVoice, deriveTargets, DEFAULTS };
+if (typeof globalThis !== 'undefined') globalThis.__whistle = { WhistleProcessor, WhistleVoice, deriveTargets, DEFAULTS };
