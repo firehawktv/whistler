@@ -9,7 +9,7 @@ const { WhistleVoice, DEFAULTS } = globalThis.__whistle;
 const fs = 48000;
 
 export function render(params, seconds = 1.5, pre = 0.5) {
-  const v = new WhistleVoice(fs);
+  const v = new WhistleVoice(fs, 1, 1);
   v.setParams({ ...DEFAULTS, ...params });
   const total = Math.round(seconds * fs), buf = new Float32Array(total);
   const blk = new Float32Array(128);

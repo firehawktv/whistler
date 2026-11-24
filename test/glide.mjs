@@ -4,9 +4,9 @@ globalThis.AudioWorkletProcessor = class {}; globalThis.registerProcessor = () =
 await import('../whistle-processor.js');
 const { WhistleVoice, DEFAULTS } = globalThis.__whistle;
 const fs = 48000;
-const ranges = { length: [0.2, 2], width: [1, 10], pressure: [0, 1], ports: [0, 4], portSize: [0, 1], gap: [0, 1], turbulence: [0, 1] };
+const ranges = { length: [0.2, 2], width: [1, 10], pressure: [0, 1], ports: [0, 4], portSize: [0, 1], gap: [0, 1], turbulence: [0, 1], tone: [0, 1] };
 function run(key, fn) {
-  const v = new WhistleVoice(fs); const p = { ...DEFAULTS }; v.setParams(p);
+  const v = new WhistleVoice(fs, 1, 1); const p = { ...DEFAULTS }; v.setParams(p);
   const blk = new Float32Array(128); let prev = 0, maxJ = 0, peak = 0, bad = false, steadyJ = 0;
   const blocks = Math.round(6 * fs / 128);
   for (let b = 0; b < blocks; b++) {

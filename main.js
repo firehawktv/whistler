@@ -1,18 +1,26 @@
 'use strict';
 const PARAMS = [
-  { key: 'length',     label: 'Length',      min: 0.2, max: 2.0, step: 0.005, unit: 'm',  fmt: v => v.toFixed(2) + ' m' },
+  { key: 'length',     label: 'Length',      min: 0.05, max: 2.0, step: 0.005, unit: 'm',  fmt: v => v.toFixed(2) + ' m' },
   { key: 'width',      label: 'Bore width',  min: 1,   max: 10,  step: 0.1,   fmt: v => v.toFixed(1) + ' cm' },
   { key: 'pressure',   label: 'Pressure',    min: 0,   max: 1,   step: 0.005, fmt: v => v.toFixed(2) },
   { key: 'gap',        label: 'Lip gap',     min: 0,   max: 1,   step: 0.005, fmt: v => v < 0.2 ? 'narrow' : v > 0.65 ? 'wide' : 'mid' },
   { key: 'turbulence', label: 'Turbulence',  min: 0,   max: 1,   step: 0.005, fmt: v => v.toFixed(2) },
+  { key: 'tone',       label: 'Tone (pure ↔ edgy)', min: 0, max: 1, step: 0.005, fmt: v => v.toFixed(2) },
   { key: 'portSize',   label: 'Port size',   min: 0,   max: 1,   step: 0.005, fmt: v => v.toFixed(2) },
 ];
+const CHORDS = {
+  'Single': [1],
+  'Chime (minor)': [1, 1.1892, 1.4983],
+  'Chime (major)': [1, 1.2599, 1.4983],
+  'Wide 3-chamber': [1, 1.3348, 1.7818],
+  'Clash': [1, 1.06, 1.4983],
+};
 const PRESETS = {
-  'Steam whistle': { length: 0.25, width: 3,   pressure: 0.55, ports: 0, portSize: 0.5, gap: 0.45, turbulence: 0.25 },
-  'Low chime':     { length: 0.7,  width: 6,   pressure: 0.5,  ports: 0, portSize: 0.5, gap: 0.5,  turbulence: 0.2 },
-  'Piccolo':       { length: 0.2,  width: 1.5, pressure: 0.6,  ports: 2, portSize: 0.8, gap: 0.4,  turbulence: 0.2 },
-  'Breathy':       { length: 0.3,  width: 4,   pressure: 0.35, ports: 0, portSize: 0.5, gap: 0.3,  turbulence: 0.7 },
-  'Overblown':     { length: 0.3,  width: 3,   pressure: 0.95, ports: 0, portSize: 0.5, gap: 0.45, turbulence: 0.3 },
+  'Steam whistle': { length: 0.22, width: 3,   pressure: 0.55, ports: 0, portSize: 0.5, gap: 0.45, turbulence: 0.3,  tone: 0.4,  chord: 'Chime (minor)' },
+  'Pea whistle':   { length: 0.07, width: 1.5, pressure: 0.6,  ports: 0, portSize: 0.5, gap: 0.4,  turbulence: 0.35, tone: 0.3,  chord: 'Single' },
+  'Low chime':     { length: 0.7,  width: 6,   pressure: 0.5,  ports: 0, portSize: 0.5, gap: 0.5,  turbulence: 0.2,  tone: 0.35, chord: 'Chime (major)' },
+  'Breathy':       { length: 0.3,  width: 4,   pressure: 0.35, ports: 0, portSize: 0.5, gap: 0.3,  turbulence: 0.7,  tone: 0.3,  chord: 'Single' },
+  'Overblown':     { length: 0.3,  width: 3,   pressure: 0.95, ports: 0, portSize: 0.5, gap: 0.45, turbulence: 0.3,  tone: 0.6,  chord: 'Single' },
 };
 const state = Object.assign({}, PRESETS['Steam whistle']);
 let ctx = null, node = null, analyser = null, dirty = false, benchOn = false, sweepTimer = null;
@@ -42,6 +50,13 @@ function buildUI() {
   }
   // ports sit after bore width visually
   c.insertBefore(pr, c.children[3]);
+  const cr = document.createElement('div'); cr.className = 'row';
+  cr.innerHTML = '<label><span>Chord</span></label><select id="chord"></select>';
+  const sel = cr.querySelector('select');
+  for (const n of Object.keys(CHORDS)) sel.add(new Option(n, n));
+  sel.value = state.chord;
+  sel.addEventListener('change', () => { state.chord = sel.value; sendVoices(); });
+  c.insertBefore(cr, c.firstChild);
   const pre = $('presets');
   for (const name of Object.keys(PRESETS)) {
     const b = document.createElement('button'); b.textContent = name;
@@ -51,7 +66,15 @@ function buildUI() {
   markPorts();
 }
 function markPorts() { document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', +b.dataset.n === state.ports)); }
+function sendVoices() {
+  if (!node) return;
+  const base = CHORDS[state.chord] || [1], n = +$('voices').value;
+  // stress: stack extra copies of the chord up to n voices total
+  const out = []; for (let i = 0; i < Math.max(n, base.length); i++) out.push(base[i % base.length] * (1 + 0.003 * Math.floor(i / base.length)));
+  node.port.postMessage({ type: 'voices', ratios: n <= 1 ? base : out });
+}
 function syncUI() {
+  $('chord').value = state.chord;
   for (const p of PARAMS) { sliders[p.key].value = state[p.key]; valueLabels[p.key].textContent = p.fmt(state[p.key]); }
   markPorts();
 }
@@ -74,7 +97,7 @@ async function startAudio() {
     node.port.onmessage = (e) => { if (e.data.type === 'bench') showBench(e.data); };
     analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
     node.connect(analyser); analyser.connect(ctx.destination);
-    node.port.postMessage({ type: 'params', p: state });
+    node.port.postMessage({ type: 'params', p: state }); sendVoices();
     $('start').textContent = 'Audio running (tap to resume if paused)';
     drift.reset(); requestAnimationFrame(drawScope);
   } catch (err) { showError('Audio failed: ' + err.message); ctx = null; }
@@ -139,7 +162,7 @@ $('benchBtn').addEventListener('click', () => {
   benchOn = !benchOn; $('benchBtn').textContent = 'Benchmark: ' + (benchOn ? 'on' : 'off'); $('benchBtn').classList.toggle('on', benchOn);
   node.port.postMessage({ type: 'bench', on: benchOn }); drift.drops = 0; drift.worst = 0;
 });
-$('voices').addEventListener('change', (e) => { if (node) node.port.postMessage({ type: 'voices', n: +e.target.value }); });
+$('voices').addEventListener('change', sendVoices);
 
 // 60 s automated sweep of every parameter (acceptance test). Run with benchmark on and watch dropouts.
 $('sweepBtn').addEventListener('click', () => {
