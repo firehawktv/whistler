@@ -34,7 +34,10 @@ let ctx = null, node = null, analyser = null, dirty = false, benchOn = false, sw
 const $ = (id) => document.getElementById(id);
 const sliders = {}, valueLabels = {};
 
-function showError(msg) { const e = $('err'); e.textContent = msg; e.hidden = false; }
+function logLine(msg) { const e = $('status'); if (e) { e.textContent = (new Date().toLocaleTimeString() + ' ' + msg + '\n' + e.textContent).slice(0, 600); } }
+window.addEventListener('error', (ev) => logLine('ERROR ' + ev.message));
+window.addEventListener('unhandledrejection', (ev) => logLine('REJECTED ' + (ev.reason && ev.reason.message || ev.reason)));
+function showError(msg) { logLine(msg); const e = $('err'); e.textContent = msg; e.hidden = false; }
 
 function buildUI() {
   const c = $('controls');
@@ -105,7 +108,7 @@ async function startAudio() {
     analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
     node.connect(analyser); analyser.connect(ctx.destination);
     node.port.postMessage({ type: 'params', p: state }); sendVoices();
-    $('start').textContent = 'Audio running (tap to resume if paused)';
+    $('start').textContent = 'Audio running (tap to resume if paused)'; logLine('audio started, sampleRate ' + ctx.sampleRate);
     drift.reset(); requestAnimationFrame(drawScope);
   } catch (err) { showError('Audio failed: ' + err.message); ctx = null; }
 }
@@ -186,15 +189,21 @@ $('sweepBtn').addEventListener('click', () => {
   }, 33);
 });
 
+let starting = false;
 function setupBlow() {
   const sel = $('pattern'), btn = $('blow');
   for (const n of Object.keys(PATTERNS)) sel.add(new Option(n, n));
   const press = (e) => {
     e && e.preventDefault();
-    if (!node) { startAudio().then(() => press()); return; }
+    if (!node) {
+      if (starting) return;
+      starting = true;
+      startAudio().then(() => { starting = false; if (node) press(); }, () => { starting = false; });
+      return;
+    }
     if (ctx.state !== 'running') ctx.resume();
     const pat = PATTERNS[sel.value];
-    btn.classList.add('on');
+    btn.classList.add('on'); logLine('blow: ' + sel.value + ' ctx=' + ctx.state);
     if (pat.hold) node.port.postMessage({ type: 'gate', on: true });
     else { node.port.postMessage({ type: 'pattern', steps: pat.steps }); setTimeout(() => btn.classList.remove('on'), pat.steps.reduce((a, s) => a + s[0] + s[1], 0)); }
   };
